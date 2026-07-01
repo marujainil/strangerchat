@@ -17,12 +17,17 @@ services:
     region: singapore            # closest Render region to India; change if you like
     plan: free                   # ⚠ free SPINS DOWN when idle (cold starts ~1 min,
                                  #   and idle WebSockets drop). For an always-on chat,
+
+
+
+
+                                 
                                  #   change this to: starter
     dockerfilePath: ./backend/Dockerfile
     dockerContext: ./backend
     healthCheckPath: /api/health
     autoDeploy: true
-    dockerCommand: npm start
+   
     # Sync the DB schema + seed starter data (plans, countries, interests, admin)
     # on boot, then start the server. Seeding is idempotent (safe to re-run).
     envVars:
