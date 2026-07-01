@@ -1,0 +1,116 @@
+# ============================================================
+# StrangerChat — full-stack docker-compose
+# Brings up Postgres, Redis, coTURN, the API, the web app, and
+# an Nginx reverse proxy that fronts everything on a single origin.
+#
+#   cp backend/.env.example backend/.env   # then fill in secrets
+#   docker compose up -d --build
+#   open http://localhost
+#
+# The web app talks to the API + Socket.io through Nginx (same origin),
+# so PUBLIC_ORIGIN below is what the browser uses. For a real deployment
+# set PUBLIC_ORIGIN to your https domain and terminate TLS at Nginx/your edge.
+# ============================================================
+
+name: strangerchat
+
+x-public-origin: &public_origin ${PUBLIC_ORIGIN:-http://localhost}
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-strangerchat}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-strangerchat}
+      POSTGRES_DB: ${POSTGRES_DB:-strangerchat}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-strangerchat} -d ${POSTGRES_DB:-strangerchat}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    networks: [internal]
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    networks: [internal]
+
+  coturn:
+    image: coturn/coturn:4.6-alpine
+    restart: unless-stopped
+    # TURN relays a large UDP port range and must advertise the host's real
+    # public IP, so host networking is the most reliable mode.
+    network_mode: host
+    volumes:
+      - ./infra/coturn/turnserver.conf:/etc/coturn/turnserver.conf:ro
+    command: ["-c", "/etc/coturn/turnserver.conf"]
+
+  backend:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    env_file:
+      - ./backend/.env
+    environment:
+      NODE_ENV: production
+      PORT: "4000"
+      DATABASE_URL: postgresql://${POSTGRES_USER:-strangerchat}:${POSTGRES_PASSWORD:-strangerchat}@postgres:5432/${POSTGRES_DB:-strangerchat}?schema=public
+      REDIS_URL: redis://redis:6379
+      CLIENT_URL: *public_origin
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    expose:
+      - "4000"
+    networks: [internal]
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # NEXT_PUBLIC_* are inlined at build time. The browser reaches the API
+        # and Socket.io through Nginx on the same public origin.
+        NEXT_PUBLIC_API_URL: *public_origin
+        NEXT_PUBLIC_SOCKET_URL: *public_origin
+        NEXT_PUBLIC_SITE_URL: *public_origin
+        NEXT_PUBLIC_RAZORPAY_KEY_ID: ${NEXT_PUBLIC_RAZORPAY_KEY_ID:-}
+        NEXT_PUBLIC_GOOGLE_CLIENT_ID: ${NEXT_PUBLIC_GOOGLE_CLIENT_ID:-}
+    restart: unless-stopped
+    depends_on:
+      - backend
+    expose:
+      - "3000"
+    networks: [internal]
+
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    volumes:
+      - ./infra/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    ports:
+      - "${HTTP_PORT:-80}:80"
+    depends_on:
+      - frontend
+      - backend
+    networks: [internal]
+
+volumes:
+  pgdata:
+  redisdata:
+
+networks:
+  internal:
+    driver: bridge

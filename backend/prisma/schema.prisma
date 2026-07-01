@@ -1,0 +1,376 @@
+// StrangerChat — Prisma schema (PostgreSQL)
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum AuthProvider {
+  EMAIL
+  GOOGLE
+  GUEST
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  NONBINARY
+  UNKNOWN
+}
+
+enum RelationshipStatus {
+  SINGLE
+  TAKEN
+  COMPLICATED
+  PREFER_NOT
+}
+
+enum PlanInterval {
+  MONTHLY
+  HALF_YEARLY
+  YEARLY
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  EXPIRED
+  CANCELLED
+  PENDING
+}
+
+enum PaymentStatus {
+  CREATED
+  PENDING
+  SUCCESS
+  FAILED
+  REFUNDED
+}
+
+enum PaymentMethod {
+  RAZORPAY
+  UPI_QR
+}
+
+enum ReportReason {
+  NUDITY
+  HARASSMENT
+  SPAM
+  UNDERAGE
+  HATE
+  VIOLENCE
+  OTHER
+}
+
+enum ChatMode {
+  VIDEO
+  AUDIO
+  TEXT
+}
+
+enum Role {
+  USER
+  MODERATOR
+  ADMIN
+}
+
+model User {
+  id                 String              @id @default(cuid())
+  email              String?             @unique
+  passwordHash       String?
+  provider           AuthProvider        @default(EMAIL)
+  googleId           String?             @unique
+  role               Role                @default(USER)
+
+  displayName        String?
+  avatarUrl          String?
+  bio                String?             @db.Text
+
+  gender             Gender              @default(UNKNOWN)
+  age                Int?
+  countryCode        String?             // ISO-2, FK -> Country.code
+  city               String?
+  languages          String[]            @default([])
+  relationship       RelationshipStatus  @default(PREFER_NOT)
+
+  isVerified         Boolean             @default(false)
+  isPremium          Boolean             @default(false)
+  isGuest            Boolean             @default(false)
+  isBanned           Boolean             @default(false)
+  banReason          String?
+  bannedUntil        DateTime?
+
+  // moderation / abuse
+  reportCount        Int                 @default(0)
+  trustScore         Int                 @default(100)
+  lastIp             String?
+  vpnFlagged         Boolean             @default(false)
+
+  lastSeenAt         DateTime?
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+
+  country            Country?            @relation(fields: [countryCode], references: [code])
+  subscriptions      Subscription[]
+  payments           Payment[]
+  invoices           Invoice[]
+  refreshTokens      RefreshToken[]
+  otpCodes           OtpCode[]
+  sessions           Session[]
+  interests          UserInterest[]
+  reportsMade        Report[]            @relation("reporter")
+  reportsAgainst     Report[]            @relation("reported")
+  blocksMade         BlockedUser[]       @relation("blocker")
+  blocksAgainst      BlockedUser[]       @relation("blocked")
+  connectionsA       Connection[]        @relation("userA")
+  connectionsB       Connection[]        @relation("userB")
+  logs               Log[]
+  analytics          AnalyticsEvent[]
+
+  @@index([countryCode])
+  @@index([isPremium])
+  @@index([isBanned])
+}
+
+model Country {
+  code      String  @id // ISO-2 e.g. "IN"
+  name      String
+  dialCode  String?
+  flagEmoji String?
+  enabled   Boolean @default(true)
+  users     User[]
+}
+
+model Interest {
+  id        String         @id @default(cuid())
+  slug      String         @unique
+  label     String
+  enabled   Boolean        @default(true)
+  users     UserInterest[]
+}
+
+model UserInterest {
+  userId     String
+  interestId String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  interest   Interest @relation(fields: [interestId], references: [id], onDelete: Cascade)
+
+  @@id([userId, interestId])
+  @@index([interestId])
+}
+
+model Plan {
+  id        String       @id @default(cuid())
+  code      String       @unique // monthly | half_yearly | yearly
+  name      String
+  interval  PlanInterval
+  priceInr  Int          // in paise? -> store rupees here, convert to paise at gateway
+  durationDays Int
+  features  String[]     @default([])
+  active    Boolean      @default(true)
+  createdAt DateTime     @default(now())
+
+  subscriptions Subscription[]
+  payments      Payment[]
+}
+
+model Subscription {
+  id         String             @id @default(cuid())
+  userId     String
+  planId     String
+  status     SubscriptionStatus @default(PENDING)
+  startedAt  DateTime           @default(now())
+  expiresAt  DateTime
+  autoRenew  Boolean            @default(false)
+  createdAt  DateTime           @default(now())
+  updatedAt  DateTime           @updatedAt
+
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan   Plan @relation(fields: [planId], references: [id])
+  payment Payment?
+
+  @@index([userId])
+  @@index([status])
+}
+
+model Payment {
+  id                String        @id @default(cuid())
+  userId            String
+  planId            String?
+  subscriptionId    String?       @unique
+  method            PaymentMethod @default(RAZORPAY)
+  status            PaymentStatus @default(CREATED)
+  amountInr         Int
+  currency          String        @default("INR")
+
+  razorpayOrderId   String?       @unique
+  razorpayPaymentId String?       @unique
+  razorpaySignature String?
+  upiString         String?       @db.Text
+  failureReason     String?
+
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan         Plan?         @relation(fields: [planId], references: [id])
+  subscription Subscription? @relation(fields: [subscriptionId], references: [id])
+  invoice      Invoice?
+
+  @@index([userId])
+  @@index([status])
+}
+
+model Invoice {
+  id          String   @id @default(cuid())
+  number      String   @unique // INV-2026-000123
+  userId      String
+  paymentId   String   @unique
+  amountInr   Int
+  taxInr      Int      @default(0)
+  totalInr    Int
+  pdfUrl      String?
+  issuedAt    DateTime @default(now())
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  payment Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Connection {
+  id         String    @id @default(cuid())
+  roomId     String    @unique
+  userAId    String
+  userBId    String
+  mode       ChatMode  @default(VIDEO)
+  startedAt  DateTime  @default(now())
+  endedAt    DateTime?
+  endedBy    String?
+  durationSec Int?
+
+  userA User @relation("userA", fields: [userAId], references: [id], onDelete: Cascade)
+  userB User @relation("userB", fields: [userBId], references: [id], onDelete: Cascade)
+
+  reports Report[]
+
+  @@index([userAId])
+  @@index([userBId])
+  @@index([startedAt])
+}
+
+model Report {
+  id           String       @id @default(cuid())
+  reporterId   String
+  reportedId   String
+  connectionId String?
+  reason       ReportReason @default(OTHER)
+  details      String?      @db.Text
+  resolved     Boolean      @default(false)
+  createdAt    DateTime     @default(now())
+
+  reporter   User        @relation("reporter", fields: [reporterId], references: [id], onDelete: Cascade)
+  reported   User        @relation("reported", fields: [reportedId], references: [id], onDelete: Cascade)
+  connection Connection? @relation(fields: [connectionId], references: [id])
+
+  @@index([reportedId])
+  @@index([resolved])
+}
+
+model BlockedUser {
+  id        String   @id @default(cuid())
+  blockerId String
+  blockedId String
+  createdAt DateTime @default(now())
+
+  blocker User @relation("blocker", fields: [blockerId], references: [id], onDelete: Cascade)
+  blocked User @relation("blocked", fields: [blockedId], references: [id], onDelete: Cascade)
+
+  @@unique([blockerId, blockedId])
+  @@index([blockerId])
+}
+
+model RefreshToken {
+  id         String   @id @default(cuid())
+  userId     String
+  tokenHash  String   @unique
+  family     String   // rotation family id for reuse detection
+  userAgent  String?
+  ip         String?
+  revoked    Boolean  @default(false)
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model OtpCode {
+  id        String   @id @default(cuid())
+  userId    String?
+  email     String
+  codeHash  String
+  purpose   String   @default("LOGIN") // LOGIN | RESET
+  attempts  Int      @default(0)
+  consumed  Boolean  @default(false)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([email])
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  socketId  String?
+  ip        String?
+  userAgent String?
+  online    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  endedAt   DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Log {
+  id        String   @id @default(cuid())
+  userId    String?
+  level     String   @default("info")
+  event     String
+  message   String?  @db.Text
+  meta      Json?
+  ip        String?
+  createdAt DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id])
+
+  @@index([event])
+  @@index([createdAt])
+}
+
+model AnalyticsEvent {
+  id        String   @id @default(cuid())
+  userId    String?
+  name      String   // match_found, skip, premium_view, payment_success ...
+  props     Json?
+  countryCode String?
+  createdAt DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id])
+
+  @@index([name])
+  @@index([createdAt])
+}
+
+model AdminSetting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
+}

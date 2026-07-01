@@ -1,0 +1,53 @@
+# ---- dependencies ----
+node_modules/
+.pnp
+.pnp.js
+.yarn/install-state.gz
+
+# ---- env / secrets ----
+.env
+.env.local
+.env.*.local
+backend/.env
+frontend/.env
+!**/.env.example
+
+# ---- build output ----
+dist/
+build/
+.next/
+out/
+*.tsbuildinfo
+next-env.d.ts
+
+# ---- prisma ----
+# (commit your migrations; ignore local query engine artifacts)
+prisma/*.db
+prisma/*.db-journal
+
+# ---- logs ----
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ---- testing / coverage ----
+coverage/
+.nyc_output/
+
+# ---- caches ----
+.cache/
+.turbo/
+.eslintcache
+
+# ---- OS / editor ----
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# ---- docker ----
+# (compose volumes are named; nothing to ignore by default)

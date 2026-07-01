@@ -1,0 +1,26 @@
+# ============================================================
+# Netlify config — StrangerChat frontend (Next.js).
+# The repo root is the monorepo; the web app lives in /frontend.
+# Netlify auto-installs deps, runs the build, and serves the Next app.
+# ============================================================
+
+[build]
+  base = "frontend"
+  command = "npm run build"
+  publish = ".next"
+
+# Official Next.js runtime for Netlify (handles SSR, routing, image opt, etc.)
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
+
+# These are PUBLIC (non-secret) build-time values. You can set them here, but
+# it's easier to set them in the Netlify UI (Site settings → Environment
+# variables) so you don't edit this file. Required values:
+#
+#   NEXT_PUBLIC_API_URL     = https://strangerchat-backend.onrender.com
+#   NEXT_PUBLIC_SOCKET_URL  = https://strangerchat-backend.onrender.com
+#   NEXT_PUBLIC_SITE_URL    = https://YOUR-SITE.netlify.app
+#
+# Optional (enable the matching feature):
+#   NEXT_PUBLIC_RAZORPAY_KEY_ID    = rzp_live_xxx
+#   NEXT_PUBLIC_GOOGLE_CLIENT_ID   = xxxx.apps.googleusercontent.com
